@@ -28,5 +28,17 @@ func Init() error {
 		return err
 	}
 	fmt.Println("You are connected to your database")
+	_, err = postgres.Exec("DELETE FROM products")
+	if err != nil {
+		return err
+	}
+	_, err = postgres.Exec("DROP TABLE  products")
+	if err != nil {
+		return err
+	}
+	_, err = postgres.Exec("CREATE TABLE products (name VARCHAR(500) PRIMARY KEY UNIQUE, rating INT NOT NULL)")
+	if err != nil {
+		return err
+	}
 	return nil
 }

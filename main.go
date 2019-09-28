@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 )
 
@@ -54,6 +55,7 @@ func main() {
 		fmt.Println("Error connecting to the database at startup")
 		panic(err)
 	}
+	fmt.Println("successfully connected to database")
 	ApiResults, err := FetchTescoAPI("drink", 1, 5)
 	if err != nil {
 		fmt.Println(err)
@@ -75,16 +77,22 @@ func main() {
 		}
 
 		//todo: elllenorizni hogy a Tesco api-ban benne van-e a neve alapjan
-		fetchResult, err := FetchTescoAPI(product.Name, 0, 1)
+		fmt.Println(product.Name)
+		fetchResult, err := FetchTescoAPI(url.QueryEscape(product.Name), 0, 5)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"Message": "Tesco Api returned a bad request"})
 		}
+		fmt.Println("fetched tesco product")
+		fmt.Println(fetchResult.Uk.Ghs.Products.Results)
 		for _, v := range fetchResult.Uk.Ghs.Products.Results {
 			if v.Name == "" {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"Message": "no results"})
 			}
+			fmt.Println(v.Name)
 			if v.Name == product.Name {
 				//if we find it in tesco api, then it's good, and we can rate it
+				fmt.Println("saving product")
+				fmt.Println(product)
 				err = database.SaveProduct(product)
 				if err != nil {
 					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"Message": "failed to save to database"})
@@ -94,8 +102,26 @@ func main() {
 	})
 	r.GET("/products/", func(c *gin.Context) {
 		name := c.Query("name")
-		rating := c.Query("rating")
-		//todo: lekerdezni az adatbazisbol nev es rating alapjan
+		rating, err := strconv.Atoi(c.Query("rating"))
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"Message": "rating is not a number"})
+		}
+		products, err := database.GetProducts(name, rating)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"Message": "failed to search database"})
+		}
+		fmt.Println("getting the product")
+		fmt.Println(products)
+		js := []Fetch{}
+
+		for _, v := range products {
+			elem, err := FetchTescoAPI(url.QueryEscape(v.Name), 0, 1)
+			if err != nil {
+				//do nothing
+			}
+			js = append(js, elem)
+		}
+		c.JSON(200, js)
 
 	})
 	log.Fatal(r.Run())
@@ -107,12 +133,13 @@ func FetchTescoAPI(query string, offset int, limit int) (Fetch, error) {
 	l := strconv.Itoa(limit)
 	token := "c6a9390ece40410dbdc5c3587eb78c3a"
 	url := "https://dev.tescolabs.com/grocery/products/?query=" + query + "&offset=" + ofs + "&limit=" + l
+	fmt.Println(url)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return Fetch{}, err
 	}
 
-	req.Header.Add("Ocp-Apim-Subscription-Key", token)
+	req.Header.Add("Ocp-Apim-Subscription-Key", " "+token)
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
